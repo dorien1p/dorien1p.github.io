@@ -53,6 +53,7 @@ kbd{font-family:var(--mono);font-size:9px;border:1px solid var(--line);border-ra
 #cross:before{left:10px;top:0;width:2px;height:22px;-webkit-mask:linear-gradient(#000 35%,transparent 35% 65%,#000 65%);mask:linear-gradient(#000 35%,transparent 35% 65%,#000 65%)}
 #cross:after{top:10px;left:0;height:2px;width:22px;-webkit-mask:linear-gradient(90deg,#000 35%,transparent 35% 65%,#000 65%);mask:linear-gradient(90deg,#000 35%,transparent 35% 65%,#000 65%)}
 #cross.t:before,#cross.t:after{background:var(--red)}
+#cross{transition:opacity .13s ease,transform .17s ease;transform:scale(1)}
 #cross.blk:before,#cross.blk:after{background:var(--amber)}
 #toast{position:absolute;top:calc(48px + var(--st));left:50%;transform:translateX(-50%);font-family:var(--disp);font-weight:700;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);text-shadow:0 1px 6px #000;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
 #prompt{position:absolute;top:calc(50% + 34px);left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.1em;color:var(--amber);text-shadow:0 1px 4px #000;pointer-events:none;white-space:nowrap}
@@ -99,6 +100,9 @@ body.touch #pMission .big{font-size:16px}
 body.touch #pBody{top:calc(86px + var(--st));width:96px;padding:6px}
 body.touch #pBody svg{width:38px;height:62px}
 body.touch #toast{top:calc(110px + var(--st));font-size:13px}
+body.touch #tbTop{top:calc(74px + var(--st));width:150px}
+body.touch #tAim{border-color:rgba(242,178,61,.65);background:rgba(242,178,61,.15)}
+body.touch #tAim.down{background:rgba(242,178,61,.45)}
 @media (max-width:760px){ #pHelp{display:none} .card .brief{grid-template-columns:1fr} }
 @media (prefers-reduced-motion:reduce){ #toast,#hurt,.bar i{transition:none} }
 </style>
@@ -138,8 +142,8 @@ body.touch #toast{top:calc(110px + var(--st));font-size:13px}
       <div class="eb">3rd person / depth occlusion</div>
       <kbd>WASD</kbd> move <kbd>MOUSE</kbd> look / shoot <kbd>SPACE</kbd> jump <kbd>SHIFT</kbd> sprint<br>
       <kbd>C</kbd> crouch <kbd>K</kbd> kneel <kbd>V</kbd> crawl <kbd>H</kbd> crawl depth <kbd>Q</kbd>/<kbd>Z</kbd> lean<br>
-      <kbd>B</kbd> shoulder <kbd>R</kbd> reload <kbd>E</kbd> interact <kbd>M</kbd> diagnostics <kbd>P</kbd> pause<br>
-      <span class="mute">PS5: X jump · ○ crouch · L1/R1 lean · D-pad ↑ kneel · D-pad ← shoulder · R3 crawl · R2 fire · □ reload · △ interact</span><br>
+      <kbd>B</kbd> shoulder <kbd>L</kbd> view <kbd>RMB</kbd> hold ADS <kbd>R</kbd> reload <kbd>E</kbd> interact <kbd>M</kbd> diagnostics <kbd>P</kbd> pause<br>
+      <span class="mute">PS5: X jump · ○ crouch · L1/R1 lean · D-pad ↑ kneel · D-pad ← shoulder · D-pad ↓ crawl · R3 view · L2 aim · R2 fire · □ reload · △ interact</span><br>
       <span class="mute">Click to capture mouse · Esc releases</span>
     </div>
     <div class="panel" id="pMap"><canvas id="map" width="360" height="268"></canvas></div>
@@ -158,6 +162,8 @@ body.touch #toast{top:calc(110px + var(--st));font-size:13px}
       <button data-a="leanL" id="tLeanL">LEAN L</button>
       <button data-a="leanR" id="tLeanR">LEAN R</button>
       <button data-a="shoulder">SHLDR</button>
+      <button data-a="view">VIEW</button>
+      <button data-a="aim" id="tAim">AIM</button>
       <button data-a="depth">DEPTH</button>
       <button data-a="pause">PAUSE</button>
     </div>
@@ -302,13 +308,21 @@ const LEG={F:1.96,T:1.96,MAX:3.92*0.94,MIN:0.30};
 const HIPW=0.36, ANK=0.28;
 const LIGHT_RANGE=[12,23,38], LIGHT_NAME=['DARK','DIM','LIT'];
 const CRAWL={
-  low:{home:[[1.5,-0.75],[1.5,0.75],[-1.28,-0.84],[-1.28,0.84]],y:[0.12,0.12,0.15,0.15],order:[[0],[3],[1],[2]],stride:1.1},
-  high:{home:[[1.15,-0.62],[1.15,0.62],[-1.05,-0.72],[-1.05,0.72]],y:[0.12,0.12,0.15,0.15],order:[[0,3],[1,2]],stride:1.3}
+  low:{home:[[1.5,-0.75],[1.5,0.75],[-1.95,-0.55],[-1.95,0.55]],y:[0.12,0.12,0.15,0.15],order:[[0],[3],[1],[2]],stride:1.1},
+  high:{home:[[1.15,-0.62],[1.15,0.62],[-1.25,-0.48],[-1.25,0.48]],y:[0.12,0.12,0.15,0.15],order:[[0,3],[1,2]],stride:1.3}
 };
-const settings={sens:0.0024,quality:matchMedia('(pointer: coarse)').matches?'MOBILE':'HIGH'};
+const safeStored=(key,fallback)=>{try{const v=localStorage.getItem(key);return v===null?fallback:v;}catch(e){return fallback;}};
+const saveSetting=(key,val)=>{try{localStorage.setItem(key,String(val));}catch(e){}};
+const settings={sens:0.0024,quality:matchMedia('(pointer: coarse)').matches?'MOBILE':'HIGH',
+  cameraMode:safeStored('ss_cameraMode','THIRD')==='FIRST'?'FIRST':'THIRD',
+  aimAssist:safeStored('ss_aimAssist','false')==='true'};
+const CAM={TOGGLE_BLEND:0.085,ADS_BLEND:0.06,THIRD_FOV:78,FIRST_FOV:90,
+  THIRD_ADS_FOV:58,FIRST_ADS_FOV:65,THIRD_DIST:12.5,THIRD_SPRINT_DIST:14.0,
+  THIRD_ADS_DIST:4.5,ADS_SPEED:0.56,ADS_MOUSE_SENS:0.56,ADS_PAD_SENS:0.62,
+  TRIGGER_THRESHOLD:0.30,ASSIST_ANGLE:6*DEG,ASSIST_SLOW:0.58};
 const QUALITY={MOBILE:{dpr:1.15,shadow:0},BALANCED:{dpr:1.5,shadow:1024},HIGH:{dpr:1.85,shadow:2048}};
 let perfFrames=0,perfTime=0,perfFps=0,slowFpsTime=0;
-const G={state:'menu',time:0,dt:1/60,debug:false,stats:null,fp:false,camFrac:1,camDist:18.8,camEff:18.8,shake:0};
+const G={state:'menu',time:0,dt:1/60,debug:false,stats:null,fp:false,camFrac:1,camDist:12.5,camEff:12.5,viewBlend:settings.cameraMode==='FIRST'?1:0,wallFP:false,ads:0,aimHeld:false,fp:settings.cameraMode==='FIRST',shake:0};
 let P, R, guards=[], lamps=[], noises=[], fx=[], J=null, bodyPts=[], aimHit=null;
 
 function newPlayer(){
@@ -469,6 +483,10 @@ const PM={
   rifle:makeRifle()
 };
 scene.add(PM.rifle);
+scene.add(cam);
+const fpWeapon=makeRifle();cam.add(fpWeapon);
+fpWeapon.traverse(o=>{if(o.isMesh){o.castShadow=false;o.frustumCulled=false;}});
+fpWeapon.visible=false;
 const UPPER=[PM.torso,PM.vest,PM.pack,PM.neck,PM.head,PM.helmet,PM.shoulder[0],PM.shoulder[1],PM.uarm[0],PM.uarm[1]];
 const _m4=new THREE.Matrix4(),_x=new THREE.Vector3(),_y=new THREE.Vector3(),_z=new THREE.Vector3();
 function place(o,pos,X,Y,Z,sx,sy,sz){_x.set(X.x,X.y,X.z);_y.set(Y.x,Y.y,Y.z);_z.set(Z.x,Z.y,Z.z);_m4.makeBasis(_x,_y,_z);o.quaternion.setFromRotationMatrix(_m4);o.position.set(pos.x,pos.y,pos.z);o.scale.set(sx,sy,sz);}
@@ -519,7 +537,7 @@ dbgLines.renderOrder=10;dbgLines.frustumCulled=false;scene.add(dbgLines);
 /* ================= RESET ================= */
 function resetGame(){
   P=newPlayer();R=newRig();initFeet();
-  G.stats={time:0,shots:0,hits:0,alerts:0,kills:0,lamps:0};G.fp=false;G.camFrac=1;G.camDist=18.8;
+  G.stats={time:0,shots:0,hits:0,alerts:0,kills:0,lamps:0};G.fp=settings.cameraMode==='FIRST';G.viewBlend=G.fp?1:0;G.wallFP=false;G.ads=0;G.aimHeld=false;G.camFrac=1;G.camDist=CAM.THIRD_DIST;
   noises=[];fx.forEach(f=>scene.remove(f.o));fx=[];
   lamps.forEach(L=>{L.on=true;L.headMat.emissiveIntensity=2.2;L.light.intensity=2.4;L.cone.visible=true;});
   intelMesh.visible=true;intelLight.intensity=1.2;
@@ -584,11 +602,15 @@ function rigUpright(dt){
   if(moving){
     R.shuffle=false;R.turn=null;R.turnLead=0;
     const mv=Math.atan2(P.vz,P.vx),rel=wrap(mv-P.lookYaw),a=Math.abs(rel);let tgt;
-    if(P.sprinting||a<60*DEG)tgt=mv;else if(a<=120*DEG)tgt=P.lookYaw+rel*0.5;else tgt=P.lookYaw+wrap(rel-Math.PI)*0.25;
+    if(G.aimHeld||settings.cameraMode==='FIRST')tgt=P.lookYaw;else if(P.sprinting||a<60*DEG)tgt=mv;else if(a<=120*DEG)tgt=P.lookYaw+rel*0.5;else tgt=P.lookYaw+wrap(rel-Math.PI)*0.25;
     R.bodyYaw+=wrap(tgt-R.bodyYaw)*Math.min(1,dt*6);
   }else{
     const ad=Math.abs(diff);
     if(!R.shuffle&&ad>85*DEG)R.shuffle=true;
+    // In manual first-person and ADS, small turns also rotate the hips,
+    // but large turns retain the normal foot-shuffling/midline protection.
+    if(!R.shuffle&&(G.aimHeld||settings.cameraMode==='FIRST')&&ad>0.005)
+      R.bodyYaw=wrap(R.bodyYaw+clamp(diff,-5*dt,5*dt));
     if(R.shuffle&&ad<10*DEG&&!R.turn&&!anySwing){R.shuffle=false;R.turnLead=0;}
     if(R.shuffle&&!R.turn&&!anySwing){
       const spd=R.lookSpd;const sd=spd>3?0.12:spd>1.2?0.2:0.3,sa=(spd>3?60:spd>1.2?40:20)*DEG;
@@ -670,10 +692,7 @@ function rigCrawl(dt){
   }else{
     let wi=-1,we=0;
     C.forEach((c,i)=>{if(c.mv)return;const h=contactHome(i,mode,R.bodyYaw);const e=Math.hypot(c.x-h.x,c.z-h.z);if(e>we){we=e;wi=i;}});
-    if(wi>=0&&((!moving&&we>0.55)||we>1.05)){
-      if(moving)R.em++;
-      R.rep={i:wi,t:0,dur:moving?0.18:0.24,lx:C[wi].x,lz:C[wi].z};
-    }
+    if(wi>=0&&((!moving&&we>0.7)||we>1.9)){if(moving)R.em++;R.rep={i:wi,t:0,dur:moving?0.15:0.22,lx:C[wi].x,lz:C[wi].z};}
   }
   const Rx=-Math.sin(R.bodyYaw),Rz=Math.cos(R.bodyYaw);
   C.forEach(c=>{const dd=(c.x-P.x)*Rx+(c.z-P.z)*Rz;if(c.s*dd<0.18){const push=c.s*0.18-dd;c.x+=Rx*push;c.z+=Rz*push;R.mid++;}});
@@ -755,26 +774,14 @@ function buildPose(){
     const bl=P.prone*P.prone;
     [-1,1].forEach((s,i)=>{
       const hip=V(Pc.x+Rb.x*s*0.34,Pc.y,Pc.z+Rb.z*s*0.34);J.hip[i]=hip;
-      // Crawl joints are reconstructed from the CURRENT pelvis every frame.
-      // Knee contacts guide the preferred bend direction, but may NEVER directly
-      // reposition the solved knee or pull a boot behind an unreachable contact.
-      const c=R.C[2+i];
-      const contactKnee=V(c.x,CRAWL[P.posture].y[2+i]+c.lift,c.z);
-      const kneeBias=vadd(vma(hip,Fb,-1.40),vmul(Rb,s*(low?1.02:0.88)));
-      const kneePole=vlerp(kneeBias,contactKnee,0.38*bl);
-      // The foot folds behind the hip, rather than extending a second stride
-      // behind an already trailing knee; this keeps both bones on screen.
-      const trailing=low?2.68:2.45;
-      const forwardBob=(c.mv?c.lift:0)*0.20;
-      const ankleTarget=V(hip.x-Fb.x*(trailing-forwardBob)+Rb.x*s*(low?0.61:0.56),
-        low?0.24:0.30,
-        hip.z-Fb.z*(trailing-forwardBob)+Rb.z*s*(low?0.61:0.56));
-      const sol=solveExactLeg(hip,ankleTarget,kneePole);
+      const c=R.C[2+i];const K=V(c.x,CRAWL[P.posture].y[2+i]+c.lift,c.z);
+      const kneeDef=V(hip.x,hip.y-1.9,hip.z);
+      const intendedKnee=vlerp(kneeDef,K,bl);
+      const back=vnrm(V(intendedKnee.x-hip.x,0,intendedKnee.z-hip.z));
+      const ankleTarget=V(intendedKnee.x+back.x*1.7+Rb.x*s*0.1,low?0.18:0.34,intendedKnee.z+back.z*1.7+Rb.z*s*0.1);
+      const sol=solveExactLeg(hip,ankleTarget,intendedKnee);
       J.knee[i]=sol.knee;J.ankle[i]=sol.ankle;
-      const heel=vma(sol.ankle,Fb,0.12);
-      J.heel[i]=V(heel.x,low?0.15:0.19,heel.z);
-      const toe=vma(sol.ankle,Fb,-0.62);
-      J.toe[i]=V(toe.x,0.12,toe.z);
+      J.heel[i]=sol.ankle;J.toe[i]=V(sol.ankle.x+back.x*0.55,0.05,sol.ankle.z+back.z*0.55);
       R.reach[i]=vlen(vsub(sol.ankle,hip))/LEG.MAX;
     });
     R.legErr=Math.max(...J.hip.map((hip,i)=>Math.max(
@@ -797,18 +804,11 @@ function buildPose(){
   const grip=vma(vma(J.stock,A,0.8),Ua,-0.3),fore=vma(vma(J.stock,A,1.85),Ua,-0.14);
   const hands=[fore,grip];
   [0,1].forEach(i=>{
-    const s=i?1:-1,sh=J.sh[i],wish=hands[i];
-    // Reach-test the weapon hand before solving the elbow. In prone the old
-    // code moved the elbow to a planted contact AFTER IK, disconnecting the
-    // upper arm from the forearm and producing the floating-limb glitch.
-    const delta=vsub(wish,sh),distance=vlen(delta),reach=2.04;
-    const h=distance>reach?vma(sh,delta,reach/Math.max(distance,1e-6)):wish;
-    const normalPole=vadd(vadd(sh,V(0,-1,0)),vadd(vmul(Rb,s*0.8),vmul(A,-0.3)));
-    const c=R.C[i];
-    const crawlPole=prone?V(c.x,CRAWL[P.posture].y[i]+c.lift,c.z):normalPole;
-    const pole=vlerp(normalPole,crawlPole,P.prone*P.prone*0.85);
-    const el=ik(sh,h,1.05,1.0,vsub(pole,sh));
-    J.elbow[i]=el;J.hand[i]=h;
+    const s=i?1:-1,sh=J.sh[i],h=hands[i];
+    let el=ik(sh,h,1.05,1.0,vadd(vadd(V(0,-1,0),vmul(Rb,s*0.8)),vmul(A,-0.3)));
+    if(prone){const c=R.C[i];el=vlerp(el,V(c.x,CRAWL[P.posture].y[i]+c.lift,c.z),P.prone*P.prone);}
+    J.elbow[i]=el;
+    const dd=vsub(h,el),dl=vlen(dd);J.hand[i]=dl>1.15?vma(el,dd,1.15/dl):h;
   });
   J.eye=vma(vma(J.head,A,0.25),UP,0.05);
   return J;
@@ -885,6 +885,7 @@ function tryFire(){
   const aim=aimHit?aimHit.point:vma(J.muzzle,J.A,100);
   let d=vnrm(vsub(aim,J.muzzle));
   let spread=0.006;if(P.speed>0.5)spread+=0.03;if(P.sprinting)spread+=0.05;if(P.air)spread+=0.06;if(POST[P.posture].prone&&P.speed<0.2)spread*=0.6;
+  spread*=1-0.67*G.ads;
   const a=orth(V(0,1,0),d),b=vcross(d,a),r1=(Math.random()*2-1)*spread,r2=(Math.random()*2-1)*spread;
   d=vnrm(vadd(d,vadd(vmul(a,r1),vmul(b,r2))));
   const hit=castRay(J.muzzle,d,400,0.05);
@@ -992,7 +993,7 @@ function updateGuard(g,dt){
 
 /* ================= INPUT ================= */
 const keys={},acts=[];
-const KEYMAP={Space:'jump',KeyC:'crouch',KeyK:'kneel',KeyV:'crawl',KeyH:'depth',KeyB:'shoulder',KeyR:'reload',KeyE:'interact',KeyM:'debug',KeyP:'pause',ShiftLeft:'sprintPress',ShiftRight:'sprintPress'};
+const KEYMAP={Space:'jump',KeyC:'crouch',KeyK:'kneel',KeyV:'crawl',KeyH:'depth',KeyB:'shoulder',KeyL:'view',KeyR:'reload',KeyE:'interact',KeyM:'debug',KeyP:'pause',ShiftLeft:'sprintPress',ShiftRight:'sprintPress'};
 addEventListener('keydown',e=>{
   if(e.metaKey||e.ctrlKey)return;
   const was=keys[e.code];keys[e.code]=true;
@@ -1000,22 +1001,24 @@ addEventListener('keydown',e=>{
   if(e.code==='Space'||e.code.startsWith('Arrow'))e.preventDefault();
 });
 addEventListener('keyup',e=>{keys[e.code]=false;});
-addEventListener('blur',()=>{for(const k in keys)keys[k]=false;mouseDown=false;});
-let look={dx:0,dy:0},mouseDown=false,lockFailed=false;
+addEventListener('blur',()=>{for(const k in keys)keys[k]=false;mouseDown=false;mouseAim=false;touch.aim=false;G.aimHeld=false;});
+let look={dx:0,dy:0},mouseDown=false,mouseAim=false,lockFailed=false;
 const isLocked=()=>document.pointerLockElement===canvas;
 function requestLock(){try{const r=canvas.requestPointerLock&&canvas.requestPointerLock();if(r&&r.catch)r.catch(()=>{lockFailed=true;});}catch(e){lockFailed=true;}}
 document.addEventListener('pointerlockerror',()=>{lockFailed=true;});
 canvas.addEventListener('mousedown',e=>{
   if(G.state!=='play'||touchMode)return;
   if(e.button===0){mouseDown=true;if(isLocked()||lockFailed)acts.push('fire');else requestLock();}
+  if(e.button===2){mouseAim=true;if(!isLocked()&&!lockFailed)requestLock();}
 });
-addEventListener('mouseup',()=>{mouseDown=false;});
+addEventListener('mouseup',e=>{if(e.button===0)mouseDown=false;if(e.button===2)mouseAim=false;});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
 addEventListener('mousemove',e=>{if(touchMode)return;if(isLocked()||(lockFailed&&mouseDown)){look.dx+=e.movementX||0;look.dy+=e.movementY||0;}});
 
 /* touch */
 let touchMode=false;
 const touchUI=$('#touch'),joyEl=$('#joy'),joyKnob=joyEl.querySelector('i');
-const touch={joy:null,look:null,mf:0,mr:0,sprint:false,lean:0};
+const touch={joy:null,look:null,mf:0,mr:0,sprint:false,lean:0,aim:false};
 function enableTouch(){if(touchMode)return;touchMode=true;document.body.classList.add('touch');if(G.state==='play')touchUI.hidden=false;}
 if(isCoarse)enableTouch();
 addEventListener('touchstart',enableTouch,{passive:true});
@@ -1037,26 +1040,28 @@ function endPtr(e){if(touch.joy&&e.pointerId===touch.joy.id){touch.joy=null;touc
 tl.addEventListener('pointerup',endPtr);tl.addEventListener('pointercancel',endPtr);
 document.querySelectorAll('.tb button').forEach(b=>{
   b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();b.classList.add('down');const a=b.dataset.a;
-    if(a==='sprint'){touch.sprint=!touch.sprint;if(touch.sprint)acts.push('sprintPress');}
+    if(a==='aim'){touch.aim=true;try{b.setPointerCapture(e.pointerId);}catch(_){}}
+    else if(a==='sprint'){touch.sprint=!touch.sprint;if(touch.sprint)acts.push('sprintPress');}
     else if(a==='leanL'){touch.lean=touch.lean===-1?0:-1;}
     else if(a==='leanR'){touch.lean=touch.lean===1?0:1;}
     else acts.push(a);
   });
-  const up=()=>b.classList.remove('down');b.addEventListener('pointerup',up);b.addEventListener('pointercancel',up);b.addEventListener('pointerleave',up);
+  const up=()=>{b.classList.remove('down');if(b.dataset.a==='aim')touch.aim=false;};b.addEventListener('pointerup',up);b.addEventListener('pointercancel',up);b.addEventListener('pointerleave',()=>{if(b.dataset.a!=='aim')up();});b.addEventListener('lostpointercapture',up);
   b.addEventListener('contextmenu',e=>e.preventDefault());
 });
 
 /* gamepad */
 const pad={prev:[],connected:false,name:'',sprint:false};
 function pollPad(){
-  const out={mf:0,mr:0,lx:0,ly:0,fire:false,leanL:false,leanR:false};
+  const out={mf:0,mr:0,lx:0,ly:0,fire:false,aim:false,controller:false,leanL:false,leanR:false};
   let gp=null;try{const list=navigator.getGamepads?navigator.getGamepads():[];for(const g of list)if(g){gp=g;break;}}catch(e){}
-  pad.connected=!!gp;if(!gp)return out;pad.name=gp.id||'';
+  pad.connected=!!gp;if(!gp){pad.prev=[];return out;}pad.name=gp.id||'';out.controller=true;
   const dz=v=>Math.abs(v)<0.15?0:v;
   out.mr=dz(gp.axes[0]||0);out.mf=-dz(gp.axes[1]||0);out.lx=dz(gp.axes[2]||0);out.ly=dz(gp.axes[3]||0);
   const btn=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed);
   const edge=(i,a)=>{const p=btn(i);if(p&&!pad.prev[i])acts.push(a);pad.prev[i]=p;};
-  edge(0,'jump');edge(1,'crouch');edge(2,'reload');edge(3,'interact');edge(7,'fire');edge(11,'crawl');edge(12,'kneel');edge(14,'shoulder');edge(9,'pause');
+  edge(0,'jump');edge(1,'crouch');edge(2,'reload');edge(3,'interact');edge(7,'fire');edge(11,'view');edge(13,'crawl');edge(12,'kneel');edge(14,'shoulder');edge(9,'pause');
+  out.aim=!!(gp.buttons[6]&&(gp.buttons[6].value>CAM.TRIGGER_THRESHOLD||gp.buttons[6].pressed));
   const l3=btn(10);if(l3&&!pad.prev[10]){pad.sprint=!pad.sprint;if(pad.sprint)acts.push('sprintPress');}pad.prev[10]=l3;
   out.leanL=btn(4);out.leanR=btn(5);
   return out;
@@ -1086,6 +1091,7 @@ function doAction(a){
     case 'crawl':setPosture(P.posture==='low'?'high':P.posture==='high'?'stand':'low');break;
     case 'depth':if(POST[P.posture].prone)setPosture(P.posture==='low'?'high':'low');break;
     case 'shoulder':P.shoulder*=-1;toast(P.shoulder>0?'RIGHT SHOULDER':'LEFT SHOULDER');break;
+    case 'view':setCameraMode(settings.cameraMode==='FIRST'?'THIRD':'FIRST');break;
     case 'reload':startReload();break;
     case 'interact':
       if(nearIntel()){P.intel=true;intelMesh.visible=false;intelLight.intensity=0;toast('INTEL SECURED');updateObjective();}
@@ -1095,6 +1101,7 @@ function doAction(a){
     case 'fire':tryFire();break;
   }
 }
+function setCameraMode(mode){settings.cameraMode=mode==='FIRST'?'FIRST':'THIRD';saveSetting('ss_cameraMode',settings.cameraMode);if(G.state==='play')toast(settings.cameraMode==='FIRST'?'FIRST-PERSON VIEW':'THIRD-PERSON VIEW');}
 function updateObjective(){$('#objTxt').innerHTML=P.intel?'<b>OBJ</b> Reach extraction in the southeast corner':'<b>OBJ</b> Secure the intel in the inner courtyard';}
 
 /* ================= UPDATE ================= */
@@ -1102,7 +1109,7 @@ function updatePlayer(dt,pin){
   const post=POST[P.posture];
   let mf=clamp((keys.KeyW?1:0)-(keys.KeyS?1:0)+touch.mf+pin.mf,-1,1),mr=clamp((keys.KeyD?1:0)-(keys.KeyA?1:0)+touch.mr+pin.mr,-1,1);
   let m=Math.hypot(mf,mr);if(m>1){mf/=m;mr/=m;m=1;}
-  const wantSprint=(keys.ShiftLeft||keys.ShiftRight||touch.sprint||pad.sprint)&&m>0.2;
+  const wantSprint=(keys.ShiftLeft||keys.ShiftRight||touch.sprint||pad.sprint)&&m>0.2&&!G.aimHeld;
   P.sprinting=wantSprint&&P.posture==='stand'&&mf>-0.2;
   const spd=(P.sprinting?SPRINT.spd:post.spd)*m;
   const fy=P.lookYaw,Fx=Math.cos(fy),Fz=Math.sin(fy),Rx=-Fz,Rz=Fx;
@@ -1130,27 +1137,44 @@ function updatePlayer(dt,pin){
 
 function updateCamera(dt){
   const A=lookDir(P.pitch,P.lookYaw),Rl=V(-Math.sin(P.lookYaw),0,Math.cos(P.lookYaw));
-  const eyeY=P.eye+P.y;
-  const base=V(P.x+Rl.x*P.lean*0.6,eyeY,P.z+Rl.z*P.lean*0.6);
-  const want=P.sprinting?SPRINT.cam:POST[P.posture].cam;
-  G.camDist+=(want-G.camDist)*Math.min(1,dt*3);
-  const pivot=vadd(vadd(base,vmul(Rl,P.shoulder*1.6)),V(0,0.55,0));
+  const base=V(P.x+Rl.x*P.lean*0.6,P.eye+P.y,P.z+Rl.z*P.lean*0.6);
+  const freeDist=Math.min(P.sprinting?CAM.THIRD_SPRINT_DIST:POST[P.posture].cam,CAM.THIRD_DIST);
+  const want=lerp(freeDist,CAM.THIRD_ADS_DIST,G.ads);
+  G.camDist+=(want-G.camDist)*(1-Math.exp(-dt/0.09));
+  const offset=lerp(1.6,0.7,G.ads)*P.shoulder;
+  const pivot=vadd(vadd(base,vmul(Rl,offset)),V(0,lerp(0.55,0.15,G.ads),0));
   let desired=vma(pivot,A,-G.camDist);if(desired.y<0.6)desired.y=0.6;
-  const L=vlen(vsub(desired,base));
+  const L=Math.max(0.01,vlen(vsub(desired,base)));
   const t=segFirst(base,desired,0.35);
   const tt=Math.max(0,(t*L-0.5)/L);
-  if(tt<G.camFrac)G.camFrac=tt;else G.camFrac+=(tt-G.camFrac)*Math.min(1,dt*2.5);
-  let cp=vlerp(base,desired,G.camFrac);
+  if(tt<G.camFrac)G.camFrac=tt;
+  else G.camFrac+=(tt-G.camFrac)*Math.min(1,dt*8);
+  const third=vlerp(base,desired,G.camFrac);
   G.camEff=G.camFrac*L;
-  if(!G.fp&&G.camEff<1.5)G.fp=true;else if(G.fp&&G.camEff>2.5)G.fp=false;
-  if(G.fp)cp=J.eye;
-  let sh=G.shake>0?G.shake*0.25:0;
+  // Collision temporarily forces first person without overwriting the player's preference.
+  if(!G.wallFP&&G.camEff<1.5)G.wallFP=true;
+  else if(G.wallFP&&G.camEff>2.5)G.wallFP=false;
+  const targetFP=settings.cameraMode==='FIRST'||G.wallFP?1:0;
+  G.viewBlend+=(targetFP-G.viewBlend)*(1-Math.exp(-dt/CAM.TOGGLE_BLEND));
+  if(Math.abs(G.viewBlend-targetFP)<0.0001)G.viewBlend=targetFP;
+  G.fp=G.viewBlend>0.65;
+  // No camera geometry collision in actual first-person mode: the camera follows the head.
+  const cp=vlerp(third,J.eye,G.viewBlend);
+  const fov=lerp(lerp(CAM.THIRD_FOV,CAM.FIRST_FOV,G.viewBlend),
+    lerp(CAM.THIRD_ADS_FOV,CAM.FIRST_ADS_FOV,G.viewBlend),G.ads);
+  if(Math.abs(cam.fov-fov)>0.02){cam.fov=fov;cam.updateProjectionMatrix();}
+  const sh=G.shake>0?G.shake*0.25:0;
   cam.position.set(cp.x+(Math.random()-0.5)*sh,cp.y+(Math.random()-0.5)*sh,cp.z+(Math.random()-0.5)*sh);
   const tgt=vma(cp,A,60);cam.lookAt(tgt.x,tgt.y,tgt.z);
-  const chest=J.chest;const tMin=Math.max(0,vdot(vsub(chest,cp),A));
+  const tMin=Math.max(0,vdot(vsub(J.chest,cp),A));
   aimHit=castRay(cp,A,400,tMin+0.3);
   const chk=vma(J.chest,J.A,0.2);
   P.muzzleBlocked=segBlocked(J.sh[1],J.muzzle)||segBlocked(chk,J.muzzle);
+  // Dedicated first-person weapon model avoids looking through the player's face.
+  fpWeapon.visible=G.fp;
+  const hipX=0.38*P.shoulder;
+  fpWeapon.position.set(lerp(hipX,0,G.ads),lerp(-0.6,-0.27,G.ads),lerp(-1.35,-1.45,G.ads));
+  fpWeapon.rotation.set(0,Math.PI,0);
 }
 
 /* ================= RENDER SYNC ================= */
@@ -1173,8 +1197,9 @@ function renderPlayer(){
   boxAt(PM.helmet,vma(J.head,J.headUp,0.05),J.Rt,J.headUp,0.47,0.47,0.47);
   const X=vmul(J.Rr,-1);place(PM.rifle,J.stock,X,J.Ua,J.A,1,1,1);
   const vis=!G.fp;for(const m of UPPER)m.visible=vis;
-  PM.thigh.concat(PM.shin,PM.foot,PM.knee,PM.farm,PM.elbow,PM.hand).forEach(m=>m.visible=true);
-  PM.rifle.visible=true;
+  PM.thigh.concat(PM.shin,PM.foot,PM.knee).forEach(m=>m.visible=true);
+  PM.farm.concat(PM.elbow,PM.hand).forEach(m=>m.visible=!G.fp);
+  PM.rifle.visible=!G.fp;
 }
 function renderGuards(dt){
   for(const g of guards){
@@ -1227,6 +1252,7 @@ function updateHUD(dt){
   if(P.hurtT>0){P.hurtT-=dt;if(P.hurtT<=0)$('#hurt').style.opacity=0;}
   const hd=((P.lookYaw/DEG+90)%360+360)%360;$('#cstrip').style.transform=`translateX(${(-(hd/15)*40-20+($('#compass').clientWidth/2))}px)`;
   const cr=$('#cross');cr.className=P.muzzleBlocked?'blk':(aimHit&&(aimHit.kind==='guard'||aimHit.kind==='lamp')?'t':'');
+  cr.style.opacity=String(1-G.ads*G.viewBlend);cr.style.transform='scale('+(1-0.40*G.ads)+')';
   let pr='';
   if(nearIntel())pr=touchMode?'TAP USE TO SECURE INTEL':'PRESS E / △ TO SECURE INTEL';
   else if(!P.intel&&Math.hypot(P.x-EXTRACT.x,P.z-EXTRACT.z)<EXTRACT.r+2)pr='INTEL REQUIRED BEFORE EXTRACTION';
@@ -1247,16 +1273,16 @@ function updateHUD(dt){
   const vis={};for(const g of guards)if(g.alive&&g.vis)for(const k in g.vis)vis[k]=1;
   for(const k in regEls)regEls[k].setAttribute('fill',vis[k]?'rgba(255,91,79,.9)':'rgba(56,211,166,.32)');
   const f=R.feet,fs=x=>x.sw?'SWING':'LOCK';
-  $('#bodyRows').innerHTML=`EXPOSED <b>${Math.round(P.exposure*100)}%</b><br>${P.shoulder>0?'RIGHT':'LEFT'} SHOULDER<br>${G.fp?'1ST PERSON':'3RD PERSON'} · ARM ${G.camEff.toFixed(1)} FT<br>STEPS ${R.steps} · ${POST[P.posture].prone?'CONTACTS':fs(f[0])+'/'+fs(f[1])}`;
+  $('#bodyRows').innerHTML=`EXPOSED <b>${Math.round(P.exposure*100)}%</b><br>${P.shoulder>0?'RIGHT':'LEFT'} SHOULDER<br>${G.fp?'1ST PERSON':'3RD PERSON'} ${G.ads>0.8?'· ADS':''} · ARM ${G.camEff.toFixed(1)} FT<br>STEPS ${R.steps} · ${POST[P.posture].prone?'CONTACTS':fs(f[0])+'/'+fs(f[1])}`;
   if(G.debug)updateDiag();
 }
 function updateDiag(){
   const now=G.time;R.projWin=R.projWin.filter(t=>now-t<1);
   const fl=(f,i)=>{const yaw=Math.round(wrap(f.yaw-R.bodyYaw)/DEG);return `${f.s<0?'L':'R'} FOOT  ${f.sw?'SWING':'PLANT'}  reach ${Math.round(R.reach[i]*100)}%  ${f.sw?('t '+f.t.toFixed(2)+'/'+f.dur.toFixed(2)):('age '+f.age.toFixed(2)+'s')}  yaw ${yaw>=0?'+':''}${yaw}°`;};
   let s='GAIT / RIG DIAGNOSTICS\n';
-  if(POST[P.posture].prone){s+=R.C.map((c,i)=>`${['ELBOW L','ELBOW R','KNEE L ','KNEE R '][i]}  ${c.mv?'MOVING':'PLANTED'}`).join('\n')+`\nPHASE ${R.crawlPhase.toFixed(2)} · PRONE TURN ${R.proneTurn?'ON':'OFF'} · CONNECTED IK\n`;}
+  if(POST[P.posture].prone){s+=R.C.map((c,i)=>`${['ELBOW L','ELBOW R','KNEE L ','KNEE R '][i]}  ${c.mv?'MOVING':'PLANTED'}`).join('\n')+`\nPHASE ${R.crawlPhase.toFixed(2)} · PRONE TURN ${R.proneTurn?'ON':'OFF'}\n`;}
   else s+=fl(R.feet[0],0)+'\n'+fl(R.feet[1],1)+'\n';
-  s+=`STEPS ${R.steps} · MIDLINE PUSHES ${R.mid}\nPROJECTIONS/S ${R.projWin.length} · TOTAL ${R.proj}\nWATCHDOG ${R.wd} · EMERGENCY ${R.em}\nSHUFFLE ${R.shuffle?'ON':'OFF'} · BODY/LOOK ${Math.round(wrap(P.lookYaw-R.bodyYaw)/DEG)}°\nLOOK SPEED ${R.lookSpd.toFixed(2)} rad/s\nLEG LEN ERR ${R.legErr.toFixed(3)} FT\nPELVIS DROP ${R.pelDrop.toFixed(2)} FT\n`;
+  s+=`CAMERA ${settings.cameraMode} · FP MIX ${G.viewBlend.toFixed(2)} · ADS ${G.ads.toFixed(2)} · AIM HELD ${G.aimHeld}\nSTEPS ${R.steps} · MIDLINE PUSHES ${R.mid}\nPROJECTIONS/S ${R.projWin.length} · TOTAL ${R.proj}\nWATCHDOG ${R.wd} · EMERGENCY ${R.em}\nSHUFFLE ${R.shuffle?'ON':'OFF'} · BODY/LOOK ${Math.round(wrap(P.lookYaw-R.bodyYaw)/DEG)}°\nLOOK SPEED ${R.lookSpd.toFixed(2)} rad/s\nLEG LEN ERR ${R.legErr.toFixed(3)} FT\nPELVIS DROP ${R.pelDrop.toFixed(2)} FT\n`;
   if(R.why)s+='WHY: '+R.why;
   $('#pDiag').textContent=s;
 }
@@ -1288,9 +1314,10 @@ function screenStart(){
   <div class="brief"><div><b>Light</b>Dark 12 ft · Dim 23 ft · Lit 38 ft guard sight. Shoot lamps to cut routes.</div>
   <div><b>Body</b>Head, torso, arms, hips and legs are checked separately against cover.</div>
   <div><b>Sound</b>Grass is quiet, metal is loud. Crawl contacts barely register.</div></div>
-  <div class="btnrow"><button class="btn" id="bStart">Start Mission</button><button class="btn ghost" id="bQualityStart">Graphics: ${settings.quality}</button></div>
-  <p class="fine" style="margin-top:12px">${touchMode?'Left thumb moves, swipe right side to look. Hold your phone sideways for the best view.':'Click the view to capture the mouse. WASD moves, mouse aims, M shows rig diagnostics.'}</p>`;
+  <div class="btnrow"><button class="btn" id="bStart">Start Mission</button><button class="btn ghost" id="bQualityStart">Graphics: ${settings.quality}</button><button class="btn ghost" id="bViewStart">Camera: ${settings.cameraMode}</button></div>
+  <p class="fine" style="margin-top:12px">${touchMode?'Left thumb moves, swipe right to look. Hold AIM to zoom and tap VIEW to switch perspective. Landscape recommended.':'Click to capture mouse. WASD moves, right mouse aims, L changes view, M shows diagnostics.'}</p>`;
   $('#bStart').onclick=()=>{startGame();};
+  $('#bViewStart').onclick=()=>{setCameraMode(settings.cameraMode==='FIRST'?'THIRD':'FIRST');$('#bViewStart').textContent='Camera: '+settings.cameraMode;};
   $('#bQualityStart').onclick=()=>{const next=settings.quality==='MOBILE'?'BALANCED':settings.quality==='BALANCED'?'HIGH':'MOBILE';applyQuality(next);$('#bQualityStart').textContent='Graphics: '+next;};
 }
 function startGame(){
@@ -1300,17 +1327,20 @@ function startGame(){
   toast('MISSION STARTED · STAY IN THE SHADOWS');
 }
 function pauseGame(){
+  G.aimHeld=false;touch.aim=false;mouseAim=false;
   G.state='pause';try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
   card.innerHTML=`<div class="rule"></div><h1>Paused</h1>
-  <div class="btnrow"><button class="btn" id="bRes">Resume</button><button class="btn ghost" id="bDbg">Diagnostics: ${G.debug?'On':'Off'}</button><button class="btn ghost" id="bQuality">Graphics: ${settings.quality}</button><button class="btn ghost" id="bRst">Restart</button></div>`;
+  <div class="btnrow"><button class="btn" id="bRes">Resume</button><button class="btn ghost" id="bDbg">Diagnostics: ${G.debug?'On':'Off'}</button><button class="btn ghost" id="bView">Camera: ${settings.cameraMode}</button><button class="btn ghost" id="bAssist">Aim assist: ${settings.aimAssist?'On':'Off'}</button><button class="btn ghost" id="bQuality">Graphics: ${settings.quality}</button><button class="btn ghost" id="bRst">Restart</button></div>`;
   overlay.hidden=false;touchUI.hidden=true;
   $('#bRes').onclick=resumeGame;$('#bRst').onclick=startGame;
+  $('#bView').onclick=()=>{setCameraMode(settings.cameraMode==='FIRST'?'THIRD':'FIRST');$('#bView').textContent='Camera: '+settings.cameraMode;};
+  $('#bAssist').onclick=()=>{settings.aimAssist=!settings.aimAssist;saveSetting('ss_aimAssist',settings.aimAssist);$('#bAssist').textContent='Aim assist: '+(settings.aimAssist?'On':'Off');};
   $('#bQuality').onclick=()=>{const next=settings.quality==='MOBILE'?'BALANCED':settings.quality==='BALANCED'?'HIGH':'MOBILE';applyQuality(next);$('#bQuality').textContent='Graphics: '+next;};
   $('#bDbg').onclick=()=>{G.debug=!G.debug;$('#pDiag').hidden=!G.debug;dbgLines.visible=G.debug;$('#bDbg').textContent='Diagnostics: '+(G.debug?'On':'Off');};
 }
 function resumeGame(){overlay.hidden=true;touchUI.hidden=!touchMode;G.state='play';if(!touchMode)requestLock();}
 function endGame(win){
-  if(G.state!=='play')return;G.state='end';try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
+  if(G.state!=='play')return;G.aimHeld=false;touch.aim=false;mouseAim=false;G.state='end';try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
   const S=G.stats,mm=Math.floor(S.time/60),ss=String(Math.floor(S.time%60)).padStart(2,'0');
   card.innerHTML=`<div class="rule" style="background:${win?'var(--teal)':'var(--red)'}"></div><div class="eb" style="margin-top:12px;color:${win?'var(--teal)':'var(--red)'}">${win?'Extraction confirmed':'Signal lost'}</div>
   <h1>${win?'Mission <em>Complete</em>':'Mission Failed'}</h1>
@@ -1320,6 +1350,16 @@ function endGame(win){
 }
 document.addEventListener('pointerlockchange',()=>{});
 
+function assistLookFactor(){
+  if(!settings.aimAssist||!G.aimHeld||!pad.connected||!J)return 1;
+  const from=J.eye,aim=lookDir(P.pitch,P.lookYaw);
+  for(const g of guards){
+    if(!g.alive)continue;
+    const gp=V(g.x,4.7,g.z),d=vnrm(vsub(gp,from));
+    if(vdot(aim,d)>Math.cos(CAM.ASSIST_ANGLE)&&!segBlocked(from,gp))return CAM.ASSIST_SLOW;
+  }
+  return 1;
+}
 /* ================= LOOP ================= */
 function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();}
 addEventListener('resize',resize);addEventListener('orientationchange',()=>setTimeout(resize,200));resize();
@@ -1337,9 +1377,13 @@ function frame(now){
   while(acts.length)doAction(acts.shift());
   if(G.state==='play'){
     G.time+=dt;G.stats.time+=dt;
-    const k=settings.sens;
-    P.lookYaw=wrap(P.lookYaw+look.dx*k+pin.lx*2.6*dt);
-    P.pitch=clamp(P.pitch-look.dy*k-pin.ly*2.0*dt,-1.15,1.0);
+    G.aimHeld=(mouseAim||touch.aim||pin.aim)&&P.reloadT<=0;
+    G.ads+=(Number(G.aimHeld)-G.ads)*(1-Math.exp(-dt/CAM.ADS_BLEND));
+    const k=settings.sens*(G.aimHeld?CAM.ADS_MOUSE_SENS:1);
+    const pK=G.aimHeld?CAM.ADS_PAD_SENS:1;
+    const factor=assistLookFactor();
+    P.lookYaw=wrap(P.lookYaw+look.dx*k+pin.lx*2.6*dt*pK*factor);
+    P.pitch=clamp(P.pitch-look.dy*k-pin.ly*2.0*dt*pK*factor,-1.15,1.0);
     const dl=Math.abs(wrap(P.lookYaw-R.lastLook))/Math.max(dt,0.001);R.lookSpd+=(dl-R.lookSpd)*0.15;R.lastLook=P.lookYaw;
     look.dx=0;look.dy=0;
     updatePlayer(dt,pin);
@@ -1358,7 +1402,7 @@ dbgLines.visible=false;
 resetGame();J=buildPose();bodyPts=buildBodyPts(J);renderPlayer();renderGuards(0);
 screenStart();
 requestAnimationFrame(frame);
-window.__SS={G,get P(){return P;},get R(){return R;},get guards(){return guards;},acts,keys,frame,touch,applyQuality,buildPose};
+window.__SS={G,get P(){return P;},get R(){return R;},get guards(){return guards;},acts,keys,frame,touch,applyQuality,buildPose,setCameraMode,settings,get CAM(){return CAM;},get mouseAim(){return mouseAim;}};
 })();
 }
 </script>
