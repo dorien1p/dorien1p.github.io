@@ -302,8 +302,8 @@ const LEG={F:1.96,T:1.96,MAX:3.92*0.94,MIN:0.30};
 const HIPW=0.36, ANK=0.28;
 const LIGHT_RANGE=[12,23,38], LIGHT_NAME=['DARK','DIM','LIT'];
 const CRAWL={
-  low:{home:[[1.5,-0.75],[1.5,0.75],[-1.95,-0.55],[-1.95,0.55]],y:[0.12,0.12,0.15,0.15],order:[[0],[3],[1],[2]],stride:1.1},
-  high:{home:[[1.15,-0.62],[1.15,0.62],[-1.25,-0.48],[-1.25,0.48]],y:[0.12,0.12,0.15,0.15],order:[[0,3],[1,2]],stride:1.3}
+  low:{home:[[1.5,-0.75],[1.5,0.75],[-1.28,-0.84],[-1.28,0.84]],y:[0.12,0.12,0.15,0.15],order:[[0],[3],[1],[2]],stride:1.1},
+  high:{home:[[1.15,-0.62],[1.15,0.62],[-1.05,-0.72],[-1.05,0.72]],y:[0.12,0.12,0.15,0.15],order:[[0,3],[1,2]],stride:1.3}
 };
 const settings={sens:0.0024,quality:matchMedia('(pointer: coarse)').matches?'MOBILE':'HIGH'};
 const QUALITY={MOBILE:{dpr:1.15,shadow:0},BALANCED:{dpr:1.5,shadow:1024},HIGH:{dpr:1.85,shadow:2048}};
@@ -670,7 +670,10 @@ function rigCrawl(dt){
   }else{
     let wi=-1,we=0;
     C.forEach((c,i)=>{if(c.mv)return;const h=contactHome(i,mode,R.bodyYaw);const e=Math.hypot(c.x-h.x,c.z-h.z);if(e>we){we=e;wi=i;}});
-    if(wi>=0&&((!moving&&we>0.7)||we>1.9)){if(moving)R.em++;R.rep={i:wi,t:0,dur:moving?0.15:0.22,lx:C[wi].x,lz:C[wi].z};}
+    if(wi>=0&&((!moving&&we>0.55)||we>1.05)){
+      if(moving)R.em++;
+      R.rep={i:wi,t:0,dur:moving?0.18:0.24,lx:C[wi].x,lz:C[wi].z};
+    }
   }
   const Rx=-Math.sin(R.bodyYaw),Rz=Math.cos(R.bodyYaw);
   C.forEach(c=>{const dd=(c.x-P.x)*Rx+(c.z-P.z)*Rz;if(c.s*dd<0.18){const push=c.s*0.18-dd;c.x+=Rx*push;c.z+=Rz*push;R.mid++;}});
@@ -752,14 +755,26 @@ function buildPose(){
     const bl=P.prone*P.prone;
     [-1,1].forEach((s,i)=>{
       const hip=V(Pc.x+Rb.x*s*0.34,Pc.y,Pc.z+Rb.z*s*0.34);J.hip[i]=hip;
-      const c=R.C[2+i];const K=V(c.x,CRAWL[P.posture].y[2+i]+c.lift,c.z);
-      const kneeDef=V(hip.x,hip.y-1.9,hip.z);
-      const intendedKnee=vlerp(kneeDef,K,bl);
-      const back=vnrm(V(intendedKnee.x-hip.x,0,intendedKnee.z-hip.z));
-      const ankleTarget=V(intendedKnee.x+back.x*1.7+Rb.x*s*0.1,low?0.18:0.34,intendedKnee.z+back.z*1.7+Rb.z*s*0.1);
-      const sol=solveExactLeg(hip,ankleTarget,intendedKnee);
+      // Crawl joints are reconstructed from the CURRENT pelvis every frame.
+      // Knee contacts guide the preferred bend direction, but may NEVER directly
+      // reposition the solved knee or pull a boot behind an unreachable contact.
+      const c=R.C[2+i];
+      const contactKnee=V(c.x,CRAWL[P.posture].y[2+i]+c.lift,c.z);
+      const kneeBias=vadd(vma(hip,Fb,-1.40),vmul(Rb,s*(low?1.02:0.88)));
+      const kneePole=vlerp(kneeBias,contactKnee,0.38*bl);
+      // The foot folds behind the hip, rather than extending a second stride
+      // behind an already trailing knee; this keeps both bones on screen.
+      const trailing=low?2.68:2.45;
+      const forwardBob=(c.mv?c.lift:0)*0.20;
+      const ankleTarget=V(hip.x-Fb.x*(trailing-forwardBob)+Rb.x*s*(low?0.61:0.56),
+        low?0.24:0.30,
+        hip.z-Fb.z*(trailing-forwardBob)+Rb.z*s*(low?0.61:0.56));
+      const sol=solveExactLeg(hip,ankleTarget,kneePole);
       J.knee[i]=sol.knee;J.ankle[i]=sol.ankle;
-      J.heel[i]=sol.ankle;J.toe[i]=V(sol.ankle.x+back.x*0.55,0.05,sol.ankle.z+back.z*0.55);
+      const heel=vma(sol.ankle,Fb,0.12);
+      J.heel[i]=V(heel.x,low?0.15:0.19,heel.z);
+      const toe=vma(sol.ankle,Fb,-0.62);
+      J.toe[i]=V(toe.x,0.12,toe.z);
       R.reach[i]=vlen(vsub(sol.ankle,hip))/LEG.MAX;
     });
     R.legErr=Math.max(...J.hip.map((hip,i)=>Math.max(
@@ -782,11 +797,18 @@ function buildPose(){
   const grip=vma(vma(J.stock,A,0.8),Ua,-0.3),fore=vma(vma(J.stock,A,1.85),Ua,-0.14);
   const hands=[fore,grip];
   [0,1].forEach(i=>{
-    const s=i?1:-1,sh=J.sh[i],h=hands[i];
-    let el=ik(sh,h,1.05,1.0,vadd(vadd(V(0,-1,0),vmul(Rb,s*0.8)),vmul(A,-0.3)));
-    if(prone){const c=R.C[i];el=vlerp(el,V(c.x,CRAWL[P.posture].y[i]+c.lift,c.z),P.prone*P.prone);}
-    J.elbow[i]=el;
-    const dd=vsub(h,el),dl=vlen(dd);J.hand[i]=dl>1.15?vma(el,dd,1.15/dl):h;
+    const s=i?1:-1,sh=J.sh[i],wish=hands[i];
+    // Reach-test the weapon hand before solving the elbow. In prone the old
+    // code moved the elbow to a planted contact AFTER IK, disconnecting the
+    // upper arm from the forearm and producing the floating-limb glitch.
+    const delta=vsub(wish,sh),distance=vlen(delta),reach=2.04;
+    const h=distance>reach?vma(sh,delta,reach/Math.max(distance,1e-6)):wish;
+    const normalPole=vadd(vadd(sh,V(0,-1,0)),vadd(vmul(Rb,s*0.8),vmul(A,-0.3)));
+    const c=R.C[i];
+    const crawlPole=prone?V(c.x,CRAWL[P.posture].y[i]+c.lift,c.z):normalPole;
+    const pole=vlerp(normalPole,crawlPole,P.prone*P.prone*0.85);
+    const el=ik(sh,h,1.05,1.0,vsub(pole,sh));
+    J.elbow[i]=el;J.hand[i]=h;
   });
   J.eye=vma(vma(J.head,A,0.25),UP,0.05);
   return J;
@@ -1232,7 +1254,7 @@ function updateDiag(){
   const now=G.time;R.projWin=R.projWin.filter(t=>now-t<1);
   const fl=(f,i)=>{const yaw=Math.round(wrap(f.yaw-R.bodyYaw)/DEG);return `${f.s<0?'L':'R'} FOOT  ${f.sw?'SWING':'PLANT'}  reach ${Math.round(R.reach[i]*100)}%  ${f.sw?('t '+f.t.toFixed(2)+'/'+f.dur.toFixed(2)):('age '+f.age.toFixed(2)+'s')}  yaw ${yaw>=0?'+':''}${yaw}°`;};
   let s='GAIT / RIG DIAGNOSTICS\n';
-  if(POST[P.posture].prone){s+=R.C.map((c,i)=>`${['ELBOW L','ELBOW R','KNEE L ','KNEE R '][i]}  ${c.mv?'MOVING':'PLANTED'}`).join('\n')+`\nPHASE ${R.crawlPhase.toFixed(2)} · PRONE TURN ${R.proneTurn?'ON':'OFF'}\n`;}
+  if(POST[P.posture].prone){s+=R.C.map((c,i)=>`${['ELBOW L','ELBOW R','KNEE L ','KNEE R '][i]}  ${c.mv?'MOVING':'PLANTED'}`).join('\n')+`\nPHASE ${R.crawlPhase.toFixed(2)} · PRONE TURN ${R.proneTurn?'ON':'OFF'} · CONNECTED IK\n`;}
   else s+=fl(R.feet[0],0)+'\n'+fl(R.feet[1],1)+'\n';
   s+=`STEPS ${R.steps} · MIDLINE PUSHES ${R.mid}\nPROJECTIONS/S ${R.projWin.length} · TOTAL ${R.proj}\nWATCHDOG ${R.wd} · EMERGENCY ${R.em}\nSHUFFLE ${R.shuffle?'ON':'OFF'} · BODY/LOOK ${Math.round(wrap(P.lookYaw-R.bodyYaw)/DEG)}°\nLOOK SPEED ${R.lookSpd.toFixed(2)} rad/s\nLEG LEN ERR ${R.legErr.toFixed(3)} FT\nPELVIS DROP ${R.pelDrop.toFixed(2)} FT\n`;
   if(R.why)s+='WHY: '+R.why;
